@@ -1,7 +1,7 @@
 using namespace app;
 
 // God Mode
-DO_APP_FUNC(0x0012106B0, bool, AdventureActor_OnHitActor, (void* hitBox, int uniqueAttackId, int onceAttackTargetCount, void* actor, void* raycastHit, bool damaged, void* hurtEffectPrefab, bool isHittedEffectScale, bool effectIgnoreTimeScale));
+DO_APP_FUNC(0x0012106B0, bool, AdventureActor_OnHitActor, (void* __this, void* hitBox, int uniqueAttackId, int onceAttackTargetCount, void* actor, void* raycastHit, bool damaged, void* hurtEffectPrefab, bool isHittedEffectScale, bool effectIgnoreTimeScale));
 DO_APP_FUNC(0x001221D50, bool, AdventureActor_get_damageImmunity, (void* __this));
 DO_APP_FUNC(0x001140E00, bool, AdventureTargetBlob_IsPlayerActorAttackable, (void* __this, void* playerActor, int64_t attackRange));
 

@@ -19,7 +19,6 @@ namespace cheat
 	private:
 		std::unordered_map<std::string, std::vector<Feature*>> m_FeatureMap;
 		
-
 		void PushFeature(Feature* feature);
 
 	protected:
