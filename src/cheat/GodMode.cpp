@@ -3,7 +3,7 @@
 
 namespace cheat::feature
 {
-	static bool AdventureActor_OnHitActor_Hook(void* __this, void* hitBox, int uniqueAttackId, int onceAttackTargetCount, void* actor, void* raycastHit, bool damaged, void* hurtEffectPrefab, bool isHittedEffectScale, bool effectIgnoreTimeScale);
+	static bool AdventureActor_OnHitActor_Hook(app::AdventureActor* __this, app::HitBox* hitBox, int32_t uniqueAttackId, int32_t onceAttackTargetCount, app::LogicEntity* actor, app::DeterministicRaycastHit* raycastHit, bool* damaged, app::GameObject* hurtEffectPrefab, bool isHittedEffectScale, bool effectIgnoreTimeScale, MethodInfo* method);
 
 	GodMode& GodMode::GetInstance()
 	{
@@ -28,11 +28,14 @@ namespace cheat::feature
 		ImGui::Checkbox("God Mode", &f_GodMode);
 	}
 
-	static bool AdventureActor_OnHitActor_Hook(void* __this, void* hitBox, int uniqueAttackId, int onceAttackTargetCount, void* actor, void* raycastHit, bool damaged, void* hurtEffectPrefab, bool isHittedEffectScale, bool effectIgnoreTimeScale)
+	static bool AdventureActor_OnHitActor_Hook(app::AdventureActor* __this, app::HitBox* hitBox, int32_t uniqueAttackId, int32_t onceAttackTargetCount, app::LogicEntity* actor, app::DeterministicRaycastHit* raycastHit, bool* damaged, app::GameObject* hurtEffectPrefab, bool isHittedEffectScale, bool effectIgnoreTimeScale, MethodInfo* method)
 	{
 		auto& godMode = GodMode::GetInstance();
-		if (godMode.f_GodMode) return false;
+		if (godMode.f_GodMode && strcmp(__this->klass->_0.name, "PlayerAdventureActor") != 0) {
+			*damaged = true;
+			return true;
+		}
 
-		return CALL_ORIGIN(AdventureActor_OnHitActor_Hook, __this, hitBox, uniqueAttackId, onceAttackTargetCount, actor, raycastHit, damaged, hurtEffectPrefab, isHittedEffectScale, effectIgnoreTimeScale);
+		return CALL_ORIGIN(AdventureActor_OnHitActor_Hook, __this, hitBox, uniqueAttackId, onceAttackTargetCount, actor, raycastHit, damaged, hurtEffectPrefab, isHittedEffectScale, effectIgnoreTimeScale, method);
 	}
 }

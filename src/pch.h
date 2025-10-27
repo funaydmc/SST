@@ -8,6 +8,8 @@
 #define PCH_H
 
 // add headers that you want to pre-compile here
+#include <appdata/il2cpp-appdata.h>
+
 #include "framework.h"
 #include <src/util/Logger.h>
 #include <src/util/HookManager.h>
@@ -17,7 +19,5 @@
 #include <ImGui/imgui_internal.h>
 #include <ImGui/imgui_impl_dx11.h>
 #include <ImGui/imgui_impl_win32.h>
-
-#include <appdata/il2cpp-appdata.h>
 
 #endif //PCH_H

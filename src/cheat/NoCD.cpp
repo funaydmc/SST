@@ -3,10 +3,10 @@
 
 namespace cheat::feature
 {
-	static void PlayerSkillCd_ClearEnergy_Hook(void* __this);
-	static void PlayerSkillCd_ReduceSkillSection_Hook(void* __this, int skillId, bool beginResume);
-	static void PlayerSkillCd_ResetUseInterval_Hook(void* __this, int skillId);
-	static void SkillInfo_set_currentEnergy_Hook(void* __this, int64_t value);
+	static void PlayerSkillCd_ReduceSkillSection_Hook(app::PlayerSkillCd* __this, int32_t skillId, bool beginResume, MethodInfo* method);
+	static void PlayerSkillCd_ResetUseInterval_Hook(app::PlayerSkillCd* __this, int32_t skillId, MethodInfo* method);
+	static void PlayerSkillCd_ClearEnergy_Hook(app::PlayerSkillCd* __this, MethodInfo* method);
+	static void SkillInfo_set_currentEnergy_Hook(app::SkillInfo* __this, app::FP value, MethodInfo* method);
 
 	NoCD& NoCD::GetInstance()
 	{
@@ -36,37 +36,31 @@ namespace cheat::feature
 		ImGui::Checkbox("Unlimited Energy", &f_UnlimitedEnergy);
 	}
 
-	static void PlayerSkillCd_ClearEnergy_Hook(void* __this) {
+	static void PlayerSkillCd_ClearEnergy_Hook(app::PlayerSkillCd* __this, MethodInfo* method) {
 		NoCD& noCD = NoCD::GetInstance();
 		if (noCD.f_UnlimitedEnergy) return;
-		return CALL_ORIGIN(PlayerSkillCd_ClearEnergy_Hook, __this);
+		return CALL_ORIGIN(PlayerSkillCd_ClearEnergy_Hook, __this, method);
 	}
 
-	static void PlayerSkillCd_ReduceSkillSection_Hook(void* __this, int skillId, bool beginResume) {
+	static void PlayerSkillCd_ReduceSkillSection_Hook(app::PlayerSkillCd* __this, int32_t skillId, bool beginResume, MethodInfo* method) {
 		NoCD& noCD = NoCD::GetInstance();
 		if (noCD.f_NoCooldown) return;
-		return CALL_ORIGIN(PlayerSkillCd_ReduceSkillSection_Hook, __this, skillId, beginResume);
+		return CALL_ORIGIN(PlayerSkillCd_ReduceSkillSection_Hook, __this, skillId, beginResume, method);
 	
 	}
 
-	static void PlayerSkillCd_ResetUseInterval_Hook(void* __this, int skillId) {
+	static void PlayerSkillCd_ResetUseInterval_Hook(app::PlayerSkillCd* __this, int32_t skillId, MethodInfo* method) {
 		NoCD& noCD = NoCD::GetInstance();
 		if (noCD.f_NoCooldown) return;
-		return CALL_ORIGIN(PlayerSkillCd_ResetUseInterval_Hook, __this, skillId);
+		return CALL_ORIGIN(PlayerSkillCd_ResetUseInterval_Hook, __this, skillId, method);
 	}
 
-	static void SkillInfo_set_currentEnergy_Hook(void* __this, int64_t value) {
+	static void SkillInfo_set_currentEnergy_Hook(app::SkillInfo* __this, app::FP value, MethodInfo* method) {
 		NoCD& noCD = NoCD::GetInstance();
 		if (noCD.f_UnlimitedEnergy) {
-			int64_t energy = app::SkillInfo_get_totalEnergy(__this);
-			value = (int64_t)energy << 32;
+			int32_t energy = app::SkillInfo_get_totalEnergy(__this, nullptr);
+			value = app::FP_op_Implicit(energy, nullptr);
 		}
-		return CALL_ORIGIN(SkillInfo_set_currentEnergy_Hook, __this, value);
+		return CALL_ORIGIN(SkillInfo_set_currentEnergy_Hook, __this, value, method);
 	}
-
-	//static void AdventureSkill_InitSkill_Hook(void* __this, int skillId, void* owner, void* targets, int skillLauncherType, bool isInterruptAttack, bool isBreakable, int skillCastBehaviourType, int countdownTiming, void* finishCallback, void* beginCDForMonsterCallback, bool ingoreCDAndEnergy) {
-	//	NoCD& noCD = NoCD::GetInstance();
-	//	if (noCD.f_NoCooldown || noCD.f_UnlimitedEnergy) ingoreCDAndEnergy = true;
-	//	return CALL_ORIGIN(AdventureSkill_InitSkill_Hook, __this, skillId, owner, targets, skillLauncherType, isInterruptAttack, isBreakable, skillCastBehaviourType, countdownTiming, finishCallback, beginCDForMonsterCallback, ingoreCDAndEnergy);
-	//}
 }

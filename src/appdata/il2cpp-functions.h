@@ -1,28 +1,24 @@
+// Generated C++ file by Il2CppInspector - http://www.djkaty.com - https://github.com/djkaty
+// Target Unity version: 2021.3.0 - 2023.1.99
+
+// ******************************************************************************
+// * IL2CPP application-specific method definition addresses and signatures
+// ******************************************************************************
+
 using namespace app;
 
 // God Mode
-DO_APP_FUNC(0x0012106B0, bool, AdventureActor_OnHitActor, (void* __this, void* hitBox, int uniqueAttackId, int onceAttackTargetCount, void* actor, void* raycastHit, bool damaged, void* hurtEffectPrefab, bool isHittedEffectScale, bool effectIgnoreTimeScale));
-DO_APP_FUNC(0x001221D50, bool, AdventureActor_get_damageImmunity, (void* __this));
-DO_APP_FUNC(0x001140E00, bool, AdventureTargetBlob_IsPlayerActorAttackable, (void* __this, void* playerActor, int64_t attackRange));
-
-// Only affect UI, actual skill cooldown still applies
-DO_APP_FUNC(0x00146AB10, bool, PlayerAdventureActor_CheckSkillReady, (void* __this));
-DO_APP_FUNC(0x00146AC00, bool, PlayerAdventureActor_CheckUltimateSkillReady, (void* __this));
-
-DO_APP_FUNC(0x0014715B0, void, PlayerSkillCd_AddEnergy, (void* __this, int energy));
-DO_APP_FUNC(0x001472320, void, PlayerSkillCd_ClearEnergy, (void* __this));
-DO_APP_FUNC(0x0014730E0, int64_t /*FP*/, PlayerSkillCd_GetEnergy, (void* __this));
-DO_APP_FUNC(0x0014749D0, void, PlayerSkillCd_ResetSkillCD, (int skillId));
-DO_APP_FUNC(0x001475900, void, PlayerSkillCd_UpdateSkillCD, (void* __this, int64_t /*FP*/ deltaTime));
-DO_APP_FUNC(0x001472240, bool, PlayerSkillCd_CanUseCD, (void* __this, int skillId));
+DO_APP_FUNC(0x012106B0, bool, AdventureActor_OnHitActor, (AdventureActor * __this, HitBox * hitBox, int32_t uniqueAttackId, int32_t onceAttackTargetCount, LogicEntity * actor, DeterministicRaycastHit * raycastHit, bool * damaged, GameObject * hurtEffectPrefab, bool isHittedEffectScale, bool effectIgnoreTimeScale, MethodInfo * method));
 
 // No Cooldown
-DO_APP_FUNC(0x001474580, void, PlayerSkillCd_ReduceSkillSection, (void* __this, int skillId, bool beginResume));
-DO_APP_FUNC(0x001474CE0, void, PlayerSkillCd_ResetUseInterval, (void* __this, int skillId));
+DO_APP_FUNC(0x01474580, void, PlayerSkillCd_ReduceSkillSection, (PlayerSkillCd * __this, int32_t skillId, bool beginResume, MethodInfo * method));
+DO_APP_FUNC(0x01474CE0, void, PlayerSkillCd_ResetUseInterval, (PlayerSkillCd * __this, int32_t skillId, MethodInfo * method));
 
 // Unlimited Energy
-DO_APP_FUNC(0x00147BC60, void, SkillInfo_get_currentEnergy, (void* __this));
-DO_APP_FUNC(0x00147BCE0, void, SkillInfo_set_currentEnergy, (void* __this, int64_t /*FP*/ value));
-DO_APP_FUNC(0x00147BCA0, int64_t, SkillInfo_get_totalEnergy, (void* __this));
+DO_APP_FUNC(0x01472320, void, PlayerSkillCd_ClearEnergy, (PlayerSkillCd * __this, MethodInfo * method));
+DO_APP_FUNC(0x0147BCE0, void, SkillInfo_set_currentEnergy, (SkillInfo * __this, FP value, MethodInfo * method));
+DO_APP_FUNC(0x0147BCA0, int32_t, SkillInfo_get_totalEnergy, (SkillInfo * __this, MethodInfo * method));
+DO_APP_FUNC(0x011CB720, void, AdventureSkill_InitSkill, (AdventureSkill * __this, int32_t skillId, GameObject * owner, List_1_UnityEngine_GameObject_ * targets, SkillLauncherType__Enum skillLauncherType, bool isInterruptAttack, bool isBreakable, SkillPhaseFeatureFlag__Enum skillCastBehaviourType, SkillCountdownTiming__Enum countdownTiming, Action_1_Boolean_ * finishCallback, Action_1_TrueSync_FP_ * beginCDForMonsterCallback, bool ingoreCDAndEnergy, MethodInfo * method));
+DO_APP_FUNC(0x01335290, iFP, AttributeList_GetAttributeValue, (AttributeList* __this, GameEnum_effectAttributeType__Enum type, MethodInfo* method));
 
-DO_APP_FUNC(0x0011CB720, void, AdventureSkill_InitSkill, (void* __this, int skillId, void* owner, void* targets, int skillLauncherType, bool isInterruptAttack, bool isBreakable, int skillCastBehaviourType, int countdownTiming, void* finishCallback, void* beginCDForMonsterCallback, bool ingoreCDAndEnergy));
+DO_APP_FUNC(0x051FF150, FP, FP_op_Implicit, (int32_t value, MethodInfo* method));
