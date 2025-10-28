@@ -6,17 +6,171 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <vector>
 
 #include "il2cpp-metadata-version.h"
 
+#define IS_SINGLETON_LOADED(className) (/**app::Singleton_1_## className ##___TypeInfo != nullptr &&*/ *app::Singleton_1_ ## className ## __get_Instance__MethodInfo != nullptr)
+#define GET_SINGLETON(tpname) IS_SINGLETON_LOADED(tpname) ? reinterpret_cast<app:: ## tpname ## *>(app::Singleton_GetInstance(*app::Singleton_1_ ## tpname ## __get_Instance__MethodInfo)) : nullptr
+
+#define INIT_ILCPP_CLASS(className, expr) (il2cpp_runtime_class_init(reinterpret_cast<Il2CppClass*>(*app::## className ##__TypeInfo)), expr)
+#define GET_STATIC_FIELDS(tpname) INIT_ILCPP_CLASS(tpname, (*app::## tpname ##__TypeInfo)->static_fields)
+
+#define SAFE_BEGIN() __try {
+#define SAFE_ERROR() } __except (EXCEPTION_EXECUTE_HANDLER) { \
+LOG_WARNING("Exception 0x%08x.", GetExceptionCode());
+
+#define SAFE_END() }
+#define SAFE_EEND() SAFE_ERROR(); SAFE_END();
+
+#define COMMA ,
+#define TO_UNI_COLLECTION(field, collection) reinterpret_cast<collection*>(field)
+#define TO_UNI_ARRAY(field, type) TO_UNI_COLLECTION(field, UniArray<type>)
+#define TO_UNI_LIST(field, type) TO_UNI_COLLECTION(field, UniList<type>)
+#define TO_UNI_LINK_LIST(field, type) TO_UNI_COLLECTION(field, UniLinkList<type>)
+#define TO_UNI_DICT(field, keyType, valueType) TO_UNI_COLLECTION(field, UniDict<keyType COMMA valueType>)
+
+template<class ElementT>
+struct UniLinkList;
+
+template<class ElementT>
+struct UniLinkListNode
+{
+    ElementT item;
+    UniLinkList<ElementT>* container;
+    UniLinkListNode<ElementT>* forward;
+    UniLinkListNode<ElementT>* back;
+};
+
+template<class ElementT>
+struct UniLinkList
+{
+    void* klass;
+    MonitorData* monitor;
+    uint32_t count;
+    uint32_t version;
+    app::Object* syncRoot;
+    UniLinkListNode<ElementT>* first;
+    struct SerializationInfo* si;
+};
+
+template<typename ElementT>
+struct UniArray {
+    void* klass;
+    MonitorData* monitor;
+    Il2CppArrayBounds* bounds;
+    il2cpp_array_size_t max_length;
+    ElementT vector[32];
+
+    typedef ElementT* iterator;
+    typedef const ElementT* const_iterator;
+
+    size_t length() const { return (bounds == nullptr) ? max_length : bounds->length; }
+
+    iterator begin() { return &vector[0]; }
+    const_iterator begin() const { return &vector[0]; }
+    iterator end() { return &vector[length()]; }
+    const_iterator end() const { return &vector[length()]; }
+    ElementT* operator[](int i) { return &vector[i]; }
+
+    std::vector<ElementT> vec()
+    {
+        auto result = std::vector<ElementT>(length());
+        for (auto i = begin(); i < end(); i++)
+            result.push_back(*i);
+        return result;
+    }
+};
+
+template <typename T>
+struct UniList
+{
+    void* klass;
+    void* monitor;
+    UniArray<T>* store;
+    int32_t size;
+    int32_t version;
+
+    typedef T* iterator;
+    typedef const T* const_iterator;
+
+    iterator begin() { return (*store)[0]; }
+    const_iterator begin() const { return (*store)[0]; }
+    iterator end() { return (*store)[size]; }
+    const_iterator end() const { return (*store)[size]; }
+
+    std::vector<T> vec()
+    {
+        auto result = std::vector<T>();
+        result.reserve(size);
+        for (auto i = begin(); i < end(); i++)
+            result.push_back(*i);
+        return result;
+    }
+};
+
+template<typename KeyT, typename ValT>
+struct UniDictEntry
+{
+    int32_t hashCode;
+    int32_t next;
+    KeyT key;
+    ValT value;
+};
+
+template<typename KeyT, typename ValT>
+struct __declspec(align(8)) UniDict {
+    void* klass;
+    MonitorData* monitor;
+    void* buckets;
+    UniArray<UniDictEntry<KeyT, ValT>>* entries;
+    int32_t count;
+    int32_t version;
+    int32_t freeList;
+    int32_t freeCount;
+    void* comparer;
+    void* keys;
+    void* values;
+
+    std::vector<std::pair<KeyT, ValT>> pairs()
+    {
+        auto pairs = std::vector<std::pair<KeyT, ValT>>();
+
+#define DictCheckNull(field, msg) if (field == nullptr) { /*LOG_WARNING("Failed to get dict pairs: %s", msg);*/ return pairs; }
+
+        DictCheckNull(buckets, "Buckets is null.");
+        DictCheckNull(entries, "Entries is null.");
+
+#undef DictCheckNull
+
+        int32_t index = 0;
+        for (auto& entry : *entries)
+        {
+            if (index >= count)
+                break;
+
+            if (entry.hashCode > 0)
+                pairs.push_back({ entry.key, entry.value });
+
+            index++;
+        }
+
+        return pairs;
+    }
+};
+
+template<class T>
+T* CastTo(void* pObject, void* pClass)
+{
+    auto object = reinterpret_cast<app::Object*>(pObject);
+    if (object == nullptr || object->klass == nullptr || object->klass != pClass)
+        return nullptr;
+
+    return reinterpret_cast<T*>(object);
+}
+
 // Helper function to get the module base address
 uintptr_t il2cppi_get_base_address();
-
-// Helper function to append text to a file
-void il2cppi_log_write(std::string text);
-
-// Helper function to open a new console window and redirect stdout there
-void il2cppi_new_console();
 
 #if _MSC_VER >= 1920
 // Helper function to convert Il2CppString to std::string

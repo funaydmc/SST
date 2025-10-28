@@ -6,7 +6,7 @@
 #include "CheatMenu.h"
 
 #include "cheat/NoCD.h"
-#include "cheat/GodMode.h"
+#include "cheat/HitEffect.h"
 
 #include "cheat/misc/About.h"
 
@@ -44,7 +44,7 @@ void Run(HMODULE* phModule) {
 
 	auto& menu = cheat::CheatMenu::GetInstance();
 	menu.AddFeatures({
-		&cheat::feature::GodMode::GetInstance(),
+		&cheat::feature::HitEffect::GetInstance(),
 		&cheat::feature::NoCD::GetInstance(),
 		&cheat::feature::About::GetInstance()
 	});

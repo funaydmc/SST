@@ -176,7 +176,7 @@
     <ClInclude Include="src\appdata\il2cpp-types-ptr.h" />
     <ClInclude Include="src\appdata\il2cpp-types.h" />
     <ClInclude Include="src\CheatMenu.h" />
-    <ClInclude Include="src\cheat\GodMode.h" />
+    <ClInclude Include="src\cheat\HitEffect.h" />
     <ClInclude Include="src\cheat\misc\About.h" />
     <ClInclude Include="src\Feature.h" />
     <ClInclude Include="src\cheat\NoCD.h" />
@@ -197,7 +197,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\appdata\helpers.cpp" />
-    <ClCompile Include="src\cheat\GodMode.cpp" />
+    <ClCompile Include="src\cheat\HitEffect.cpp" />
     <ClCompile Include="src\appdata\il2cpp-init.cpp" />
     <ClCompile Include="src\CheatMenu.cpp" />
     <ClCompile Include="src\cheat\misc\About.cpp" />

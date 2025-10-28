@@ -72,7 +72,7 @@
     <ClInclude Include="src\render\dx11-hook.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\cheat\GodMode.h">
+    <ClInclude Include="src\cheat\HitEffect.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\render\gui-util.h">
@@ -143,7 +143,7 @@
     <ClCompile Include="src\render\dx11-hook.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\cheat\GodMode.cpp">
+    <ClCompile Include="src\cheat\HitEffect.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\render\gui-util.cpp">
