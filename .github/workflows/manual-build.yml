@@ -91,8 +91,28 @@ jobs:
         $buildPath = "bin\$configPlatform"
         
         if (Test-Path $buildPath) {
-          Write-Host "Copying files from $buildPath to $artifactPath"
-          Copy-Item -Path "$buildPath\*" -Destination $artifactPath -Recurse -Force
+          Write-Host "Looking for DLL files in $buildPath"
+          
+          # Find the target DLL (StellaSora-Tool.dll)
+          $dllFiles = Get-ChildItem -Path $buildPath -Name "*.dll" -File
+          $targetDll = $dllFiles | Where-Object { $_ -like "*StellaSora*" -or $_ -like "*Tool*" }
+          
+          if (-not $targetDll) {
+            # Fallback to any DLL files if target not found by name
+            $targetDll = $dllFiles
+          }
+          
+          if ($targetDll) {
+            foreach ($dll in $targetDll) {
+              $sourcePath = Join-Path $buildPath $dll
+              $destPath = Join-Path $artifactPath $dll
+              Copy-Item -Path $sourcePath -Destination $destPath -Force
+              Write-Host "Copied: $dll"
+            }
+          } else {
+            Write-Host "No DLL files found in $buildPath"
+            exit 1
+          }
           
           # Create a build info file
           $buildInfo = @{
@@ -102,6 +122,7 @@ jobs:
             "Commit SHA" = "${{ github.sha }}"
             "Commit Message" = "${{ github.event.head_commit.message }}"
             "Branch" = "${{ github.ref_name }}"
+            "DLL Files" = ($targetDll -join ", ")
           }
           
           $buildInfo | ConvertTo-Json | Out-File -FilePath "$artifactPath\build-info.json" -Encoding UTF8
@@ -162,7 +183,9 @@ jobs:
           
           if [ -n "$platform" ]; then
             mkdir -p "../release-bundle/$platform"
-            cp -r "$dir"* "../release-bundle/$platform/"
+            # Only copy DLL files and build info
+            cp "$dir"*.dll "../release-bundle/$platform/" 2>/dev/null || true
+            cp "$dir"build-info.json "../release-bundle/$platform/" 2>/dev/null || true
           fi
         done
         
@@ -181,9 +204,14 @@ jobs:
         **Available Platforms:**
         $(ls -1 | grep -E 'x(86|64)' | sed 's/^/- /')
         
+        **Contents:**
+        Each platform directory contains:
+        - The compiled DLL file
+        - build-info.json with build metadata
+        
         **Installation:**
         1. Choose the appropriate platform directory (x86 or x64)
-        2. Extract the DLL file from the chosen platform
+        2. Use the DLL file from the chosen platform
         3. Follow the project's installation instructions
         
         **Note:** This is an automated build. Please verify compatibility with your target application.
