@@ -1,0 +1,207 @@
+name: Manual Build
+
+# This workflow can be triggered manually from the Actions tab
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: 'Build Configuration'
+        required: true
+        default: 'Release'
+        type: choice
+        options:
+          - Debug
+          - Release
+      platform:
+        description: 'Build Platform'
+        required: true
+        default: 'x64'
+        type: choice
+        options:
+          - x86
+          - x64
+          - 'All Platforms'
+      upload_artifacts:
+        description: 'Upload build artifacts'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  # Path to the solution file relative to the root of the project.
+  SOLUTION_FILE_PATH: ./StellaSora-Tool.sln
+  
+  # Project name for output
+  PROJECT_NAME: StellaSora-Tool
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    strategy:
+      matrix:
+        platform: ${{ github.event.inputs.platform == 'All Platforms' && fromJson('["x86", "x64"]') || fromJson(format('["{0}"]', github.event.inputs.platform)) }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        # Fetch full history for better build info
+        fetch-depth: 0
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+      with:
+        vs-version: '[17.0,18.0)'
+
+    - name: Setup Windows SDK
+      uses: GuillaumeFalourd/setup-windows10-sdk-action@v2
+      with:
+        sdk-version: 20348
+
+    - name: Restore NuGet packages
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: nuget restore ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Build Solution
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: |
+        msbuild /m /p:Configuration=${{ github.event.inputs.configuration }} /p:Platform=${{ matrix.platform }} ${{env.SOLUTION_FILE_PATH}}
+
+    - name: List build outputs
+      shell: powershell
+      run: |
+        Write-Host "Build outputs:"
+        if (Test-Path "bin") {
+          Get-ChildItem -Path "bin" -Recurse -File | ForEach-Object {
+            Write-Host "  $($_.FullName)"
+          }
+        } else {
+          Write-Host "  No bin directory found"
+        }
+
+    - name: Prepare artifacts
+      if: ${{ github.event.inputs.upload_artifacts == 'true' }}
+      shell: powershell
+      run: |
+        $artifactPath = "artifacts"
+        New-Item -ItemType Directory -Force -Path $artifactPath
+        
+        $configPlatform = "${{ github.event.inputs.configuration }}-${{ matrix.platform }}"
+        $buildPath = "bin\$configPlatform"
+        
+        if (Test-Path $buildPath) {
+          Write-Host "Copying files from $buildPath to $artifactPath"
+          Copy-Item -Path "$buildPath\*" -Destination $artifactPath -Recurse -Force
+          
+          # Create a build info file
+          $buildInfo = @{
+            "Build Date" = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
+            "Configuration" = "${{ github.event.inputs.configuration }}"
+            "Platform" = "${{ matrix.platform }}"
+            "Commit SHA" = "${{ github.sha }}"
+            "Commit Message" = "${{ github.event.head_commit.message }}"
+            "Branch" = "${{ github.ref_name }}"
+          }
+          
+          $buildInfo | ConvertTo-Json | Out-File -FilePath "$artifactPath\build-info.json" -Encoding UTF8
+          
+          Write-Host "Artifact contents:"
+          Get-ChildItem -Path $artifactPath -Recurse | ForEach-Object {
+            Write-Host "  $($_.Name)"
+          }
+        } else {
+          Write-Host "Build path $buildPath not found"
+          exit 1
+        }
+
+    - name: Upload Build Artifacts
+      if: ${{ github.event.inputs.upload_artifacts == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.PROJECT_NAME }}-${{ github.event.inputs.configuration }}-${{ matrix.platform }}-${{ github.run_number }}
+        path: artifacts/
+        retention-days: 30
+        compression-level: 6
+
+    - name: Build Summary
+      shell: powershell
+      run: |
+        Write-Host "=== Build Summary ==="
+        Write-Host "Project: ${{ env.PROJECT_NAME }}"
+        Write-Host "Configuration: ${{ github.event.inputs.configuration }}"
+        Write-Host "Platform: ${{ matrix.platform }}"
+        Write-Host "Commit: ${{ github.sha }}"
+        Write-Host "Branch: ${{ github.ref_name }}"
+        Write-Host "Runner: ${{ runner.os }} ${{ runner.arch }}"
+        Write-Host "Artifacts uploaded: ${{ github.event.inputs.upload_artifacts }}"
+        Write-Host "===================="
+
+  create-release:
+    if: ${{ github.event.inputs.upload_artifacts == 'true' && github.event.inputs.platform == 'All Platforms' }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: all-artifacts
+    
+    - name: Create Release Bundle
+      run: |
+        mkdir -p release-bundle
+        cd all-artifacts
+        
+        # Create a combined release with both platforms
+        for dir in */; do
+          platform=$(echo $dir | grep -o 'x[68][46]')
+          config="${{ github.event.inputs.configuration }}"
+          
+          if [ -n "$platform" ]; then
+            mkdir -p "../release-bundle/$platform"
+            cp -r "$dir"* "../release-bundle/$platform/"
+          fi
+        done
+        
+        cd ../release-bundle
+        
+        # Create README for the release
+        cat > README.md << EOF
+        # ${{ env.PROJECT_NAME }} Build
+        
+        **Build Information:**
+        - Configuration: ${{ github.event.inputs.configuration }}
+        - Date: $(date -u)
+        - Commit: ${{ github.sha }}
+        - Branch: ${{ github.ref_name }}
+        
+        **Available Platforms:**
+        $(ls -1 | grep -E 'x(86|64)' | sed 's/^/- /')
+        
+        **Installation:**
+        1. Choose the appropriate platform directory (x86 or x64)
+        2. Extract the DLL file from the chosen platform
+        3. Follow the project's installation instructions
+        
+        **Note:** This is an automated build. Please verify compatibility with your target application.
+        EOF
+        
+        # Create ZIP for each platform
+        for platform_dir in x*/; do
+          if [ -d "$platform_dir" ]; then
+            platform=$(basename "$platform_dir")
+            zip -r "${{ env.PROJECT_NAME }}-${{ github.event.inputs.configuration }}-${platform}.zip" "$platform_dir"
+          fi
+        done
+        
+        ls -la
+
+    - name: Upload Release Bundle
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.PROJECT_NAME }}-${{ github.event.inputs.configuration }}-Complete-${{ github.run_number }}
+        path: release-bundle/
+        retention-days: 90
