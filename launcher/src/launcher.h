@@ -1,22 +1,38 @@
 #pragma once
-#include <windows.h>
+#include <Windows.h>
 #include <string>
 
-class Launcher {
-public:
-    Launcher();
-    ~Launcher();
+namespace StellaLauncher {
+    class Launcher {
+    public:
+        Launcher();
+        ~Launcher();
 
-    bool Initialize();
-    bool LaunchGameWithInjection(const std::wstring& gamePath, const std::wstring& dllPath);
+        // Main launcher functions
+        bool Initialize();
+        bool LaunchGame();
+        bool InjectDLL();
+        void Cleanup();
 
-private:
-    bool m_initialized;
-    std::wstring m_gameProcessName;
-    std::wstring m_targetDllPath;
+        // Configuration
+        void SetGamePath(const std::wstring& path);
+        void SetDLLPath(const std::wstring& path);
+        void SetAutoInject(bool autoInject);
 
-    // Internal methods
-    bool ValidateFiles(const std::wstring& gamePath, const std::wstring& dllPath);
-    void ShowConsole();
-    void LogMessage(const std::string& message);
-};
+        // Status
+        bool IsGameRunning();
+        DWORD GetGameProcessId();
+
+    private:
+        std::wstring m_gamePath;
+        std::wstring m_dllPath;
+        bool m_autoInject;
+        DWORD m_gameProcessId;
+        bool m_initialized;
+
+        // Helper functions
+        bool ValidateGamePath();
+        bool ValidateDLLPath();
+        bool WaitForGameWindow();
+    };
+}

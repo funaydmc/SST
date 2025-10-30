@@ -2,228 +2,389 @@
 #include "process_utils.h"
 #include <iostream>
 #include <fstream>
-#include <filesystem>
+#include <vector>
+#include <Psapi.h>
 
-DllInjector::DllInjector() {
+namespace StellaLauncher {
+
+DLLInjector::DLLInjector() {
 }
 
-DllInjector::~DllInjector() {
+DLLInjector::~DLLInjector() {
 }
 
-bool DllInjector::InjectDll(DWORD processId, const std::wstring& dllPath, InjectionMethod method) {
-    HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, processId);
-    if (!hProcess) {
-        std::wcout << L"[INJECTOR] Error: Could not open target process (PID: " << processId << L")" << std::endl;
-        return false;
-    }
-
-    bool result = InjectDll(hProcess, dllPath, method);
-    CloseHandle(hProcess);
-    return result;
-}
-
-bool DllInjector::InjectDll(HANDLE hProcess, const std::wstring& dllPath, InjectionMethod method) {
-    if (!ValidateDll(dllPath)) {
-        return false;
-    }
-
-    std::wcout << L"[INJECTOR] Starting DLL injection..." << std::endl;
-    std::wcout << L"[INJECTOR] DLL Path: " << dllPath << std::endl;
-
-    bool result = false;
-    switch (method) {
-        case InjectionMethod::LoadLibrary:
-            std::wcout << L"[INJECTOR] Using LoadLibrary injection method" << std::endl;
-            result = InjectViaLoadLibrary(hProcess, dllPath);
-            break;
-
-        case InjectionMethod::ManualMap:
-            std::wcout << L"[INJECTOR] Using Manual Map injection method" << std::endl;
-            result = InjectViaManualMap(hProcess, dllPath);
-            break;
-
-        case InjectionMethod::ThreadHijacking:
-            std::wcout << L"[INJECTOR] Using Thread Hijacking injection method" << std::endl;
-            result = InjectViaThreadHijacking(hProcess, dllPath);
-            break;
-
-        default:
-            std::wcout << L"[INJECTOR] Error: Invalid injection method" << std::endl;
-            return false;
-    }
-
-    if (result) {
-        std::wcout << L"[INJECTOR] DLL injection completed successfully!" << std::endl;
-    } else {
-        std::wcout << L"[INJECTOR] DLL injection failed!" << std::endl;
-    }
-
-    return result;
-}
-
-bool DllInjector::InjectViaLoadLibrary(HANDLE hProcess, const std::wstring& dllPath) {
-    std::wcout << L"[INJECTOR] Injecting via LoadLibrary..." << std::endl;
-
-    // Get LoadLibraryW address
-    HMODULE hKernel32 = GetModuleHandle(L"kernel32.dll");
-    if (!hKernel32) {
-        std::wcout << L"[INJECTOR] Error: Could not get kernel32.dll handle" << std::endl;
-        return false;
-    }
-
-    LPVOID pLoadLibraryW = (LPVOID)GetProcAddress(hKernel32, "LoadLibraryW");
-    if (!pLoadLibraryW) {
-        std::wcout << L"[INJECTOR] Error: Could not get LoadLibraryW address" << std::endl;
-        return false;
-    }
-
-    // Allocate memory for DLL path in target process
-    SIZE_T pathSize = (dllPath.length() + 1) * sizeof(wchar_t);
-    LPVOID pDllPath = nullptr;
+bool DLLInjector::InjectDLL(DWORD processId, const std::wstring& dllPath) {
+    std::wcout << L"[INFO] Attempting standard DLL injection..." << std::endl;
     
-    if (!ProcessUtils::AllocateMemoryInProcess(hProcess, pathSize, &pDllPath)) {
-        std::wcout << L"[INJECTOR] Error: Could not allocate memory in target process" << std::endl;
+    // Open target process
+    HANDLE hProcess = OpenTargetProcess(processId);
+    if (!hProcess) {
+        std::wcout << L"[ERROR] Failed to open target process" << std::endl;
         return false;
     }
-
+    
+    // Allocate memory in target process for DLL path
+    SIZE_T pathSize = (dllPath.length() + 1) * sizeof(wchar_t);
+    LPVOID remoteMemory = AllocateMemoryInProcess(hProcess, pathSize);
+    
+    if (!remoteMemory) {
+        std::wcout << L"[ERROR] Failed to allocate memory in target process" << std::endl;
+        CloseHandle(hProcess);
+        return false;
+    }
+    
     // Write DLL path to target process
-    if (!ProcessUtils::WriteMemoryToProcess(hProcess, pDllPath, dllPath.c_str(), pathSize)) {
-        std::wcout << L"[INJECTOR] Error: Could not write DLL path to target process" << std::endl;
-        ProcessUtils::FreeMemoryInProcess(hProcess, pDllPath);
+    if (!WriteMemoryToProcess(hProcess, remoteMemory, dllPath.c_str(), pathSize)) {
+        std::wcout << L"[ERROR] Failed to write DLL path to target process" << std::endl;
+        FreeMemoryInProcess(hProcess, remoteMemory);
+        CloseHandle(hProcess);
         return false;
     }
-
-    // Create remote thread to call LoadLibraryW
+    
+    // Get LoadLibraryW address
+    HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
+    FARPROC loadLibraryAddr = GetProcAddress(hKernel32, "LoadLibraryW");
+    
+    if (!loadLibraryAddr) {
+        std::wcout << L"[ERROR] Failed to get LoadLibraryW address" << std::endl;
+        FreeMemoryInProcess(hProcess, remoteMemory);
+        CloseHandle(hProcess);
+        return false;
+    }
+    
+    // Create remote thread to load DLL
     HANDLE hThread = CreateRemoteThread(
         hProcess,
         nullptr,
         0,
-        (LPTHREAD_START_ROUTINE)pLoadLibraryW,
-        pDllPath,
+        (LPTHREAD_START_ROUTINE)loadLibraryAddr,
+        remoteMemory,
         0,
         nullptr
     );
-
-    if (!hThread) {
-        std::wcout << L"[INJECTOR] Error: Could not create remote thread (Error: " << GetLastError() << L")" << std::endl;
-        ProcessUtils::FreeMemoryInProcess(hProcess, pDllPath);
-        return false;
-    }
-
-    // Wait for the thread to complete
-    std::wcout << L"[INJECTOR] Waiting for LoadLibrary to complete..." << std::endl;
-    DWORD waitResult = WaitForSingleObject(hThread, 10000); // 10 second timeout
     
-    if (waitResult != WAIT_OBJECT_0) {
-        std::wcout << L"[INJECTOR] Error: LoadLibrary thread timed out or failed" << std::endl;
-        TerminateThread(hThread, 0);
-        CloseHandle(hThread);
-        ProcessUtils::FreeMemoryInProcess(hProcess, pDllPath);
+    if (!hThread) {
+        std::wcout << L"[ERROR] Failed to create remote thread" << std::endl;
+        FreeMemoryInProcess(hProcess, remoteMemory);
+        CloseHandle(hProcess);
         return false;
     }
+    
+    // Wait for thread to complete
+    DWORD waitResult = WaitForSingleObject(hThread, 5000); // 5 second timeout
+    
+    if (waitResult == WAIT_TIMEOUT) {
+        std::wcout << L"[ERROR] DLL injection timed out" << std::endl;
+        TerminateThread(hThread, 0);
+        FreeMemoryInProcess(hProcess, remoteMemory);
+        CloseHandle(hThread);
+        CloseHandle(hProcess);
+        return false;
+    }
+    
+    // Check thread exit code
+    DWORD exitCode;
+    GetExitCodeThread(hThread, &exitCode);
+    
+    // Clean up
+    FreeMemoryInProcess(hProcess, remoteMemory);
+    CloseHandle(hThread);
+    CloseHandle(hProcess);
+    
+    if (exitCode == 0) {
+        std::wcout << L"[ERROR] LoadLibraryW returned 0 (DLL not loaded)" << std::endl;
+        return false;
+    }
+    
+    std::wcout << L"[SUCCESS] Standard DLL injection completed" << std::endl;
+    return true;
+}
 
-    // Get the return value (HMODULE of loaded DLL)
+bool DLLInjector::InjectDLL(const std::wstring& processName, const std::wstring& dllPath) {
+    DWORD processId = ProcessUtils::GetProcessIdByName(processName);
+    if (processId == 0) {
+        std::wcout << L"[ERROR] Process not found: " << processName << std::endl;
+        return false;
+    }
+    
+    return InjectDLL(processId, dllPath);
+}
+
+bool DLLInjector::ManualMapDLL(DWORD processId, const std::wstring& dllPath) {
+    std::wcout << L"[INFO] Attempting manual map injection..." << std::endl;
+    
+    // Open target process
+    HANDLE hProcess = OpenTargetProcess(processId);
+    if (!hProcess) {
+        std::wcout << L"[ERROR] Failed to open target process for manual mapping" << std::endl;
+        return false;
+    }
+    
+    // Read DLL file into memory
+    std::ifstream file(dllPath, std::ios::binary | std::ios::ate);
+    if (!file.is_open()) {
+        std::wcout << L"[ERROR] Failed to open DLL file: " << dllPath << std::endl;
+        CloseHandle(hProcess);
+        return false;
+    }
+    
+    std::streamsize fileSize = file.tellg();
+    file.seekg(0, std::ios::beg);
+    
+    std::vector<BYTE> dllBuffer(fileSize);
+    if (!file.read(reinterpret_cast<char*>(dllBuffer.data()), fileSize)) {
+        std::wcout << L"[ERROR] Failed to read DLL file" << std::endl;
+        CloseHandle(hProcess);
+        return false;
+    }
+    file.close();
+    
+    // Parse PE headers
+    PIMAGE_DOS_HEADER dosHeader = (PIMAGE_DOS_HEADER)dllBuffer.data();
+    if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
+        std::wcout << L"[ERROR] Invalid DOS signature" << std::endl;
+        CloseHandle(hProcess);
+        return false;
+    }
+    
+    PIMAGE_NT_HEADERS ntHeaders = (PIMAGE_NT_HEADERS)(dllBuffer.data() + dosHeader->e_lfanew);
+    if (ntHeaders->Signature != IMAGE_NT_SIGNATURE) {
+        std::wcout << L"[ERROR] Invalid NT signature" << std::endl;
+        CloseHandle(hProcess);
+        return false;
+    }
+    
+    // Allocate memory in target process
+    DWORD imageSize = ntHeaders->OptionalHeader.SizeOfImage;
+    LPVOID targetBase = VirtualAllocEx(hProcess, nullptr, imageSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    
+    if (!targetBase) {
+        std::wcout << L"[ERROR] Failed to allocate memory for manual mapping" << std::endl;
+        CloseHandle(hProcess);
+        return false;
+    }
+    
+    std::wcout << L"[INFO] Allocated memory at: " << std::hex << targetBase << std::endl;
+    
+    // Copy headers
+    if (!WriteProcessMemory(hProcess, targetBase, dllBuffer.data(), ntHeaders->OptionalHeader.SizeOfHeaders, nullptr)) {
+        std::wcout << L"[ERROR] Failed to write headers" << std::endl;
+        VirtualFreeEx(hProcess, targetBase, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        return false;
+    }
+    
+    // Copy sections
+    PIMAGE_SECTION_HEADER sectionHeader = IMAGE_FIRST_SECTION(ntHeaders);
+    for (WORD i = 0; i < ntHeaders->FileHeader.NumberOfSections; i++) {
+        if (sectionHeader[i].SizeOfRawData > 0) {
+            LPVOID sectionDest = (LPVOID)((DWORD_PTR)targetBase + sectionHeader[i].VirtualAddress);
+            LPVOID sectionSrc = (LPVOID)(dllBuffer.data() + sectionHeader[i].PointerToRawData);
+            
+            if (!WriteProcessMemory(hProcess, sectionDest, sectionSrc, sectionHeader[i].SizeOfRawData, nullptr)) {
+                std::wcout << L"[ERROR] Failed to write section: " << sectionHeader[i].Name << std::endl;
+                VirtualFreeEx(hProcess, targetBase, 0, MEM_RELEASE);
+                CloseHandle(hProcess);
+                return false;
+            }
+        }
+    }
+    
+    // Perform relocations
+    if (!RelocateImage(dllBuffer.data(), targetBase, ntHeaders)) {
+        std::wcout << L"[WARNING] Relocation failed, but continuing..." << std::endl;
+    }
+    
+    // Resolve imports
+    if (!ResolveImports(hProcess, targetBase, ntHeaders)) {
+        std::wcout << L"[ERROR] Failed to resolve imports" << std::endl;
+        VirtualFreeEx(hProcess, targetBase, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        return false;
+    }
+    
+    // Call DLL entry point
+    DWORD_PTR entryPoint = (DWORD_PTR)targetBase + ntHeaders->OptionalHeader.AddressOfEntryPoint;
+    
+    // Create remote thread to call DllMain
+    typedef BOOL(WINAPI* DllMainFunc)(HINSTANCE, DWORD, LPVOID);
+    
+    HANDLE hThread = CreateRemoteThread(
+        hProcess,
+        nullptr,
+        0,
+        (LPTHREAD_START_ROUTINE)entryPoint,
+        targetBase, // hInstance parameter
+        0,
+        nullptr
+    );
+    
+    if (!hThread) {
+        std::wcout << L"[ERROR] Failed to create thread for DllMain" << std::endl;
+        VirtualFreeEx(hProcess, targetBase, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        return false;
+    }
+    
+    // Wait for DllMain to complete
+    WaitForSingleObject(hThread, 5000);
+    
     DWORD exitCode;
     GetExitCodeThread(hThread, &exitCode);
     
     CloseHandle(hThread);
-    ProcessUtils::FreeMemoryInProcess(hProcess, pDllPath);
-
+    CloseHandle(hProcess);
+    
     if (exitCode == 0) {
-        std::wcout << L"[INJECTOR] Error: LoadLibrary failed in target process" << std::endl;
+        std::wcout << L"[ERROR] DllMain returned FALSE" << std::endl;
         return false;
     }
-
-    std::wcout << L"[INJECTOR] LoadLibrary injection successful! Module base: 0x" << std::hex << exitCode << std::dec << std::endl;
+    
+    std::wcout << L"[SUCCESS] Manual map injection completed" << std::endl;
     return true;
 }
 
-bool DllInjector::InjectViaManualMap(HANDLE hProcess, const std::wstring& dllPath) {
-    std::wcout << L"[INJECTOR] Manual map injection not fully implemented" << std::endl;
-    
-    // This is a complex injection method that requires:
-    // 1. Reading the PE file
-    // 2. Mapping sections to memory
-    // 3. Resolving imports
-    // 4. Applying relocations
-    // 5. Calling DLL entry point
-    
-    // For now, fall back to LoadLibrary method
-    return InjectViaLoadLibrary(hProcess, dllPath);
+LPVOID DLLInjector::AllocateMemoryInProcess(HANDLE hProcess, SIZE_T size) {
+    return VirtualAllocEx(hProcess, nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 }
 
-bool DllInjector::InjectViaThreadHijacking(HANDLE hProcess, const std::wstring& dllPath) {
-    std::wcout << L"[INJECTOR] Thread hijacking injection not fully implemented" << std::endl;
-    
-    // This method requires:
-    // 1. Finding a suitable thread to hijack
-    // 2. Suspending the thread
-    // 3. Modifying the thread context to point to our shellcode
-    // 4. Resuming the thread
-    
-    // For now, fall back to LoadLibrary method
-    return InjectViaLoadLibrary(hProcess, dllPath);
+bool DLLInjector::WriteMemoryToProcess(HANDLE hProcess, LPVOID address, const void* data, SIZE_T size) {
+    SIZE_T bytesWritten;
+    return WriteProcessMemory(hProcess, address, data, size, &bytesWritten) && bytesWritten == size;
 }
 
-bool DllInjector::ValidateDll(const std::wstring& dllPath) {
-    // Check if file exists
-    if (!std::filesystem::exists(dllPath)) {
-        std::wcout << L"[INJECTOR] Error: DLL file not found: " << dllPath << std::endl;
+bool DLLInjector::FreeMemoryInProcess(HANDLE hProcess, LPVOID address) {
+    return VirtualFreeEx(hProcess, address, 0, MEM_RELEASE) != 0;
+}
+
+HANDLE DLLInjector::OpenTargetProcess(DWORD processId) {
+    return OpenProcess(PROCESS_ALL_ACCESS, FALSE, processId);
+}
+
+bool DLLInjector::IsProcessValid(HANDLE hProcess) {
+    if (!hProcess || hProcess == INVALID_HANDLE_VALUE) {
         return false;
     }
-
-    // Check if it's a valid PE file (basic check)
-    std::ifstream file(dllPath, std::ios::binary);
-    if (!file.is_open()) {
-        std::wcout << L"[INJECTOR] Error: Could not open DLL file: " << dllPath << std::endl;
-        return false;
-    }
-
-    // Read DOS header
-    IMAGE_DOS_HEADER dosHeader;
-    file.read(reinterpret_cast<char*>(&dosHeader), sizeof(dosHeader));
     
-    if (dosHeader.e_magic != IMAGE_DOS_SIGNATURE) {
-        std::wcout << L"[INJECTOR] Error: Invalid DOS signature in DLL" << std::endl;
-        file.close();
-        return false;
-    }
+    DWORD exitCode;
+    return GetExitCodeProcess(hProcess, &exitCode) && exitCode == STILL_ACTIVE;
+}
 
-    // Read NT headers
-    file.seekg(dosHeader.e_lfanew);
-    IMAGE_NT_HEADERS ntHeaders;
-    file.read(reinterpret_cast<char*>(&ntHeaders), sizeof(ntHeaders));
+bool DLLInjector::RelocateImage(LPVOID imageBase, LPVOID targetBase, PIMAGE_NT_HEADERS ntHeaders) {
+    DWORD_PTR deltaBase = (DWORD_PTR)targetBase - ntHeaders->OptionalHeader.ImageBase;
     
-    if (ntHeaders.Signature != IMAGE_NT_SIGNATURE) {
-        std::wcout << L"[INJECTOR] Error: Invalid NT signature in DLL" << std::endl;
-        file.close();
-        return false;
+    if (deltaBase == 0) {
+        return true; // No relocation needed
     }
-
-    // Check if it's a DLL
-    if (!(ntHeaders.FileHeader.Characteristics & IMAGE_FILE_DLL)) {
-        std::wcout << L"[INJECTOR] Warning: File is not marked as a DLL" << std::endl;
+    
+    PIMAGE_DATA_DIRECTORY relocDir = &ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
+    if (relocDir->Size == 0) {
+        return deltaBase == 0; // No relocations and delta is non-zero
     }
-
-    file.close();
-    std::wcout << L"[INJECTOR] DLL validation passed" << std::endl;
+    
+    PIMAGE_BASE_RELOCATION relocData = (PIMAGE_BASE_RELOCATION)((DWORD_PTR)imageBase + relocDir->VirtualAddress);
+    
+    while (relocData->VirtualAddress > 0) {
+        LPVOID dest = (LPVOID)((DWORD_PTR)imageBase + relocData->VirtualAddress);
+        WORD* relInfo = (WORD*)((DWORD_PTR)relocData + sizeof(IMAGE_BASE_RELOCATION));
+        DWORD numEntries = (relocData->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
+        
+        for (DWORD i = 0; i < numEntries; i++) {
+            WORD type = (relInfo[i] >> 12) & 0xF;
+            WORD offset = relInfo[i] & 0xFFF;
+            
+            if (type == IMAGE_REL_BASED_DIR64) {
+                DWORD_PTR* patchAddr = (DWORD_PTR*)((DWORD_PTR)dest + offset);
+                *patchAddr += deltaBase;
+            }
+            else if (type == IMAGE_REL_BASED_HIGHLOW) {
+                DWORD* patchAddr = (DWORD*)((DWORD_PTR)dest + offset);
+                *patchAddr += (DWORD)deltaBase;
+            }
+        }
+        
+        relocData = (PIMAGE_BASE_RELOCATION)((DWORD_PTR)relocData + relocData->SizeOfBlock);
+    }
+    
     return true;
 }
 
-LPVOID DllInjector::GetProcAddressRemote(HANDLE hProcess, HMODULE hModule, const char* procName) {
-    // This is a placeholder for getting procedure address in remote process
-    // Would need to implement PE parsing in remote process memory
-    return nullptr;
-}
-
-bool DllInjector::ResolveImports(HANDLE hProcess, LPVOID imageBase, PIMAGE_NT_HEADERS ntHeaders) {
-    // This is a placeholder for import resolution in manual mapping
-    // Would need to implement full import table resolution
+bool DLLInjector::ResolveImports(HANDLE hProcess, LPVOID imageBase, PIMAGE_NT_HEADERS ntHeaders) {
+    PIMAGE_DATA_DIRECTORY importDir = &ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (importDir->Size == 0) {
+        return true; // No imports
+    }
+    
+    PIMAGE_IMPORT_DESCRIPTOR importDesc = (PIMAGE_IMPORT_DESCRIPTOR)((DWORD_PTR)imageBase + importDir->VirtualAddress);
+    
+    while (importDesc->Name != 0) {
+        char* moduleName = (char*)((DWORD_PTR)imageBase + importDesc->Name);
+        std::string moduleNameStr(moduleName);
+        std::wstring moduleNameWStr(moduleNameStr.begin(), moduleNameStr.end());
+        
+        HMODULE hModule = GetRemoteModuleHandle(hProcess, moduleNameWStr);
+        if (!hModule) {
+            std::wcout << L"[ERROR] Failed to get remote module: " << moduleNameWStr.c_str() << std::endl;
+            return false;
+        }
+        
+        PIMAGE_THUNK_DATA thunk = nullptr;
+        PIMAGE_THUNK_DATA funcRef = nullptr;
+        
+        if (importDesc->OriginalFirstThunk != 0) {
+            thunk = (PIMAGE_THUNK_DATA)((DWORD_PTR)imageBase + importDesc->OriginalFirstThunk);
+            funcRef = (PIMAGE_THUNK_DATA)((DWORD_PTR)imageBase + importDesc->FirstThunk);
+        } else {
+            thunk = (PIMAGE_THUNK_DATA)((DWORD_PTR)imageBase + importDesc->FirstThunk);
+            funcRef = (PIMAGE_THUNK_DATA)((DWORD_PTR)imageBase + importDesc->FirstThunk);
+        }
+        
+        while (thunk->u1.AddressOfData != 0) {
+            FARPROC funcAddr = nullptr;
+            
+            if (thunk->u1.Ordinal & IMAGE_ORDINAL_FLAG) {
+                // Import by ordinal
+                WORD ordinal = IMAGE_ORDINAL(thunk->u1.Ordinal);
+                funcAddr = GetRemoteProcAddress(hProcess, hModule, (char*)ordinal);
+            } else {
+                // Import by name
+                PIMAGE_IMPORT_BY_NAME importByName = (PIMAGE_IMPORT_BY_NAME)((DWORD_PTR)imageBase + thunk->u1.AddressOfData);
+                funcAddr = GetRemoteProcAddress(hProcess, hModule, importByName->Name);
+            }
+            
+            if (!funcAddr) {
+                std::wcout << L"[ERROR] Failed to resolve import from " << moduleNameWStr.c_str() << std::endl;
+                return false;
+            }
+            
+            funcRef->u1.Function = (DWORD_PTR)funcAddr;
+            
+            thunk++;
+            funcRef++;
+        }
+        
+        importDesc++;
+    }
+    
     return true;
 }
 
-bool DllInjector::CallDllMain(HANDLE hProcess, LPVOID imageBase, DWORD reason) {
-    // This is a placeholder for calling DllMain in manual mapping
-    // Would need to create a remote thread to call the DLL entry point
-    return true;
+HMODULE DLLInjector::GetRemoteModuleHandle(HANDLE hProcess, const std::wstring& moduleName) {
+    // In a real implementation, you would enumerate modules in the remote process
+    // For now, we'll assume the module is already loaded and return the local handle
+    return GetModuleHandleW(moduleName.c_str());
 }
+
+FARPROC DLLInjector::GetRemoteProcAddress(HANDLE hProcess, HMODULE hModule, const char* procName) {
+    // In a real implementation, you would parse the export table of the remote module
+    // For now, we'll return the local address (this works for system DLLs)
+    if ((DWORD_PTR)procName < 0x10000) {
+        // Ordinal
+        return GetProcAddress(hModule, procName);
+    } else {
+        // Name
+        return GetProcAddress(hModule, procName);
+    }
+}
+
+} // namespace StellaLauncher

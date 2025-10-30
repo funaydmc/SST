@@ -1,149 +1,226 @@
 #include "launcher.h"
-#include "process_utils.h"
 #include "anticheat_bypass.h"
 #include "dll_injector.h"
+#include "process_utils.h"
 #include <iostream>
 #include <filesystem>
 #include <thread>
 #include <chrono>
-#include <tlhelp32.h>
 
-Launcher::Launcher() : m_initialized(false) {
-    ShowConsole();
+namespace StellaLauncher {
+
+Launcher::Launcher() 
+    : m_autoInject(false)
+    , m_gameProcessId(0)
+    , m_initialized(false)
+{
 }
 
 Launcher::~Launcher() {
-    // Cleanup if needed
+    Cleanup();
 }
 
 bool Launcher::Initialize() {
-    LogMessage("Initializing launcher...");
+    std::wcout << L"[INFO] Initializing launcher..." << std::endl;
     
-    // Set console title
-    SetConsoleTitle(L"StellaSora Launcher");
+    // Enable debug privileges for process manipulation
+    if (!ProcessUtils::EnableDebugPrivilege()) {
+        std::wcout << L"[WARNING] Could not enable debug privileges" << std::endl;
+    }
     
     m_initialized = true;
-    LogMessage("Launcher initialized successfully");
+    std::wcout << L"[SUCCESS] Launcher initialized" << std::endl;
     return true;
 }
 
-bool Launcher::LaunchGameWithInjection(const std::wstring& gamePath, const std::wstring& dllPath) {
+bool Launcher::LaunchGame() {
     if (!m_initialized) {
-        LogMessage("Error: Launcher not initialized");
+        std::wcout << L"[ERROR] Launcher not initialized" << std::endl;
         return false;
     }
-
-    // Validate files exist
-    if (!ValidateFiles(gamePath, dllPath)) {
+    
+    if (!ValidateGamePath()) {
+        std::wcout << L"[ERROR] Invalid game path: " << m_gamePath << std::endl;
         return false;
     }
-
-    LogMessage("Step 1: Disabling AntiCheat systems...");
-    if (!AntiCheatBypass::DisableAntiCheatExpert()) {
-        LogMessage("Warning: Could not fully disable AntiCheat (may still work)");
+    
+    // Check if game is already running
+    DWORD existingPid = ProcessUtils::GetProcessIdByName(L"starrail.exe");
+    if (existingPid != 0) {
+        std::wcout << L"[WARNING] Game process already running (PID: " << existingPid << L")" << std::endl;
+        m_gameProcessId = existingPid;
+        return true;
+    }
+    
+    std::wcout << L"[INFO] Starting anti-cheat bypass..." << std::endl;
+    
+    // Initialize anti-cheat bypass before launching game
+    AntiCheatBypass bypass;
+    if (!bypass.InitializeBypass()) {
+        std::wcout << L"[ERROR] Failed to initialize anti-cheat bypass" << std::endl;
+        return false;
+    }
+    
+    std::wcout << L"[SUCCESS] Anti-cheat bypass initialized" << std::endl;
+    
+    // Launch the game process
+    std::wstring gameDir = std::filesystem::path(m_gamePath).parent_path().wstring();
+    PROCESS_INFORMATION procInfo = ProcessUtils::LaunchProcess(m_gamePath, L"", gameDir);
+    
+    if (procInfo.hProcess == nullptr) {
+        std::wcout << L"[ERROR] Failed to launch game process" << std::endl;
+        return false;
+    }
+    
+    m_gameProcessId = procInfo.dwProcessId;
+    
+    std::wcout << L"[SUCCESS] Game process started (PID: " << m_gameProcessId << L")" << std::endl;
+    
+    // Wait for the process to initialize
+    std::wcout << L"[INFO] Waiting for game process to initialize..." << std::endl;
+    Sleep(2000);
+    
+    // Apply anti-cheat patches to the running process
+    if (!bypass.PatchACEBinary(m_gameProcessId)) {
+        std::wcout << L"[WARNING] Failed to patch ACE in game process" << std::endl;
     } else {
-        LogMessage("AntiCheat systems disabled successfully");
+        std::wcout << L"[SUCCESS] ACE bypass applied to game process" << std::endl;
     }
-
-    // Wait a moment for anti-cheat to be fully disabled
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
-    LogMessage("Step 2: Launching game process...");
-    DWORD processId = ProcessUtils::LaunchProcess(gamePath, L"", true); // Launch suspended
-    if (processId == 0) {
-        LogMessage("Error: Failed to launch game process");
-        return false;
-    }
-
-    LogMessage("Game process launched (PID: " + std::to_string(processId) + ")");
-
-    LogMessage("Step 3: Applying anti-cheat bypass to process...");
-    if (!AntiCheatBypass::BypassProcessProtection(processId)) {
-        LogMessage("Warning: Could not apply all process protections");
-    }
-
-    LogMessage("Step 4: Allocating memory and injecting DLL...");
-    DllInjector injector;
-    if (!injector.InjectDll(processId, dllPath, InjectionMethod::LoadLibrary)) {
-        LogMessage("Error: DLL injection failed");
-        ProcessUtils::TerminateProcessById(processId);
-        return false;
-    }
-
-    LogMessage("DLL injected successfully");
-
-    LogMessage("Step 5: Resuming game process...");
-    // Resume the main thread of the suspended process
-    HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, processId);
-    if (hProcess) {
-        // Find and resume the main thread
-        HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-        if (hSnapshot != INVALID_HANDLE_VALUE) {
-            THREADENTRY32 te;
-            te.dwSize = sizeof(THREADENTRY32);
-            
-            if (Thread32First(hSnapshot, &te)) {
-                do {
-                    if (te.th32OwnerProcessID == processId) {
-                        HANDLE hThread = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
-                        if (hThread) {
-                            ResumeThread(hThread);
-                            CloseHandle(hThread);
-                            break; // Resume first thread found
-                        }
-                    }
-                } while (Thread32Next(hSnapshot, &te));
-            }
-            CloseHandle(hSnapshot);
-        }
-        CloseHandle(hProcess);
-    }
-
-    LogMessage("Game launched successfully with DLL injection!");
+    
+    // Clean up process handles
+    CloseHandle(procInfo.hProcess);
+    CloseHandle(procInfo.hThread);
+    
     return true;
 }
 
-bool Launcher::ValidateFiles(const std::wstring& gamePath, const std::wstring& dllPath) {
-    if (!std::filesystem::exists(gamePath)) {
-        LogMessage("Error: Game executable not found: " + std::string(gamePath.begin(), gamePath.end()));
+bool Launcher::InjectDLL() {
+    if (!m_initialized) {
+        std::wcout << L"[ERROR] Launcher not initialized" << std::endl;
         return false;
     }
-
-    if (!std::filesystem::exists(dllPath)) {
-        LogMessage("Error: DLL not found: " + std::string(dllPath.begin(), dllPath.end()));
+    
+    if (!ValidateDLLPath()) {
+        std::wcout << L"[ERROR] Invalid DLL path: " << m_dllPath << std::endl;
         return false;
     }
-
-    return true;
+    
+    if (m_gameProcessId == 0 || !ProcessUtils::IsProcessRunning(m_gameProcessId)) {
+        std::wcout << L"[ERROR] Game process not running" << std::endl;
+        return false;
+    }
+    
+    // Wait for game window if needed
+    if (!WaitForGameWindow()) {
+        std::wcout << L"[WARNING] Game window not found, proceeding with injection..." << std::endl;
+    }
+    
+    // Perform DLL injection
+    DLLInjector injector;
+    
+    std::wcout << L"[INFO] Attempting DLL injection..." << std::endl;
+    
+    if (injector.InjectDLL(m_gameProcessId, m_dllPath)) {
+        std::wcout << L"[SUCCESS] Standard DLL injection successful" << std::endl;
+        return true;
+    }
+    
+    std::wcout << L"[WARNING] Standard injection failed, trying manual mapping..." << std::endl;
+    
+    if (injector.ManualMapDLL(m_gameProcessId, m_dllPath)) {
+        std::wcout << L"[SUCCESS] Manual map injection successful" << std::endl;
+        return true;
+    }
+    
+    std::wcout << L"[ERROR] All injection methods failed" << std::endl;
+    return false;
 }
 
-void Launcher::ShowConsole() {
-    // Allocate console for this GUI application
-    if (!AllocConsole()) {
-        // Console might already exist
+void Launcher::Cleanup() {
+    if (!m_initialized) {
         return;
     }
-
-    // Redirect stdout, stdin, stderr to console
-    FILE* pCout;
-    FILE* pCin;
-    FILE* pCerr;
     
-    freopen_s(&pCout, "CONOUT$", "w", stdout);
-    freopen_s(&pCin, "CONIN$", "r", stdin);
-    freopen_s(&pCerr, "CONOUT$", "w", stderr);
-
-    // Make cout, wcout, cin, wcin, wcerr, cerr, wclog and clog
-    // point to console as well
-    std::ios::sync_with_stdio(true);
-    std::wcout.clear();
-    std::cout.clear();
-    std::wcerr.clear();
-    std::cerr.clear();
-    std::wcin.clear();
-    std::cin.clear();
+    std::wcout << L"[INFO] Cleaning up launcher..." << std::endl;
+    
+    m_gameProcessId = 0;
+    m_initialized = false;
+    
+    std::wcout << L"[INFO] Cleanup completed" << std::endl;
 }
 
-void Launcher::LogMessage(const std::string& message) {
-    std::cout << "[LAUNCHER] " << message << std::endl;
+void Launcher::SetGamePath(const std::wstring& path) {
+    m_gamePath = path;
 }
+
+void Launcher::SetDLLPath(const std::wstring& path) {
+    m_dllPath = path;
+}
+
+void Launcher::SetAutoInject(bool autoInject) {
+    m_autoInject = autoInject;
+}
+
+bool Launcher::IsGameRunning() {
+    if (m_gameProcessId == 0) {
+        return false;
+    }
+    
+    return ProcessUtils::IsProcessRunning(m_gameProcessId);
+}
+
+DWORD Launcher::GetGameProcessId() {
+    return m_gameProcessId;
+}
+
+bool Launcher::ValidateGamePath() {
+    if (m_gamePath.empty()) {
+        return false;
+    }
+    
+    return std::filesystem::exists(m_gamePath) && std::filesystem::is_regular_file(m_gamePath);
+}
+
+bool Launcher::ValidateDLLPath() {
+    if (m_dllPath.empty()) {
+        return false;
+    }
+    
+    return std::filesystem::exists(m_dllPath) && std::filesystem::is_regular_file(m_dllPath);
+}
+
+bool Launcher::WaitForGameWindow() {
+    std::wcout << L"[INFO] Waiting for game window..." << std::endl;
+    
+    // Wait up to 30 seconds for the game window
+    for (int i = 0; i < 30; i++) {
+        HWND gameWindow = ProcessUtils::FindMainWindow(m_gameProcessId);
+        if (gameWindow != nullptr && ProcessUtils::IsWindowVisible(gameWindow)) {
+            std::wcout << L"[SUCCESS] Game window found" << std::endl;
+            return true;
+        }
+        
+        // Also check for common game window titles
+        std::vector<std::wstring> windowTitles = {
+            L"Honkai: Star Rail",
+            L"崩坏：星穹铁道",
+            L"Star Rail",
+            L"starrail"
+        };
+        
+        for (const auto& title : windowTitles) {
+            HWND window = ProcessUtils::FindWindowByTitle(title);
+            if (window != nullptr) {
+                std::wcout << L"[SUCCESS] Game window found by title: " << title << std::endl;
+                return true;
+            }
+        }
+        
+        Sleep(1000);
+    }
+    
+    std::wcout << L"[WARNING] Game window not found after 30 seconds" << std::endl;
+    return false;
+}
+
+} // namespace StellaLauncher

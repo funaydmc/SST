@@ -1,34 +1,34 @@
 #pragma once
-#include <windows.h>
+#include <Windows.h>
 #include <string>
 
-enum class InjectionMethod {
-    LoadLibrary,
-    ManualMap,
-    ThreadHijacking
-};
+namespace StellaLauncher {
+    class DLLInjector {
+    public:
+        DLLInjector();
+        ~DLLInjector();
 
-class DllInjector {
-public:
-    DllInjector();
-    ~DllInjector();
+        // Injection methods
+        bool InjectDLL(DWORD processId, const std::wstring& dllPath);
+        bool InjectDLL(const std::wstring& processName, const std::wstring& dllPath);
+        
+        // Manual mapping injection (more advanced)
+        bool ManualMapDLL(DWORD processId, const std::wstring& dllPath);
 
-    bool InjectDll(DWORD processId, const std::wstring& dllPath, InjectionMethod method = InjectionMethod::LoadLibrary);
-    bool InjectDll(HANDLE hProcess, const std::wstring& dllPath, InjectionMethod method = InjectionMethod::LoadLibrary);
+        // Memory allocation utilities
+        LPVOID AllocateMemoryInProcess(HANDLE hProcess, SIZE_T size);
+        bool WriteMemoryToProcess(HANDLE hProcess, LPVOID address, const void* data, SIZE_T size);
+        bool FreeMemoryInProcess(HANDLE hProcess, LPVOID address);
 
-private:
-    // LoadLibrary injection
-    bool InjectViaLoadLibrary(HANDLE hProcess, const std::wstring& dllPath);
-    
-    // Manual mapping injection
-    bool InjectViaManualMap(HANDLE hProcess, const std::wstring& dllPath);
-    
-    // Thread hijacking injection
-    bool InjectViaThreadHijacking(HANDLE hProcess, const std::wstring& dllPath);
-    
-    // Helper functions
-    bool ValidateDll(const std::wstring& dllPath);
-    LPVOID GetProcAddressRemote(HANDLE hProcess, HMODULE hModule, const char* procName);
-    bool ResolveImports(HANDLE hProcess, LPVOID imageBase, PIMAGE_NT_HEADERS ntHeaders);
-    bool CallDllMain(HANDLE hProcess, LPVOID imageBase, DWORD reason);
-};
+        // Process utilities
+        HANDLE OpenTargetProcess(DWORD processId);
+        bool IsProcessValid(HANDLE hProcess);
+
+    private:
+        // Helper functions for manual mapping
+        bool RelocateImage(LPVOID imageBase, LPVOID targetBase, PIMAGE_NT_HEADERS ntHeaders);
+        bool ResolveImports(HANDLE hProcess, LPVOID imageBase, PIMAGE_NT_HEADERS ntHeaders);
+        HMODULE GetRemoteModuleHandle(HANDLE hProcess, const std::wstring& moduleName);
+        FARPROC GetRemoteProcAddress(HANDLE hProcess, HMODULE hModule, const char* procName);
+    };
+}
