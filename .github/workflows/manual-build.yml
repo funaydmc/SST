@@ -33,6 +33,9 @@ env:
   
   # Project name for output
   PROJECT_NAME: StellaSora-Tool
+  
+  # Launcher project name
+  LAUNCHER_NAME: StellaSora-Launcher
 
 jobs:
   build:
@@ -91,26 +94,57 @@ jobs:
         $buildPath = "bin\$configPlatform"
         
         if (Test-Path $buildPath) {
-          Write-Host "Looking for DLL files in $buildPath"
+          Write-Host "Looking for build outputs in $buildPath"
           
           # Find the target DLL (StellaSora-Tool.dll)
           $dllFiles = Get-ChildItem -Path $buildPath -Name "*.dll" -File
           $targetDll = $dllFiles | Where-Object { $_ -like "*StellaSora*" -or $_ -like "*Tool*" }
+          
+          # Find the launcher executable (StellaSora-Launcher.exe)
+          $exeFiles = Get-ChildItem -Path $buildPath -Name "*.exe" -File
+          $targetExe = $exeFiles | Where-Object { $_ -like "*StellaSora*" -or $_ -like "*Launcher*" }
           
           if (-not $targetDll) {
             # Fallback to any DLL files if target not found by name
             $targetDll = $dllFiles
           }
           
+          if (-not $targetExe) {
+            # Fallback to any EXE files if target not found by name
+            $targetExe = $exeFiles
+          }
+          
+          $copiedFiles = @()
+          
+          # Copy DLL files
           if ($targetDll) {
             foreach ($dll in $targetDll) {
               $sourcePath = Join-Path $buildPath $dll
               $destPath = Join-Path $artifactPath $dll
               Copy-Item -Path $sourcePath -Destination $destPath -Force
-              Write-Host "Copied: $dll"
+              Write-Host "Copied DLL: $dll"
+              $copiedFiles += $dll
             }
           } else {
-            Write-Host "No DLL files found in $buildPath"
+            Write-Host "Warning: No DLL files found in $buildPath"
+          }
+          
+          # Copy EXE files
+          if ($targetExe) {
+            foreach ($exe in $targetExe) {
+              $sourcePath = Join-Path $buildPath $exe
+              $destPath = Join-Path $artifactPath $exe
+              Copy-Item -Path $sourcePath -Destination $destPath -Force
+              Write-Host "Copied EXE: $exe"
+              $copiedFiles += $exe
+            }
+          } else {
+            Write-Host "Warning: No EXE files found in $buildPath"
+          }
+          
+          # Ensure we have at least one file
+          if ($copiedFiles.Count -eq 0) {
+            Write-Host "Error: No build outputs found"
             exit 1
           }
           
@@ -123,6 +157,8 @@ jobs:
             "Commit Message" = "${{ github.event.head_commit.message }}"
             "Branch" = "${{ github.ref_name }}"
             "DLL Files" = ($targetDll -join ", ")
+            "EXE Files" = ($targetExe -join ", ")
+            "All Files" = ($copiedFiles -join ", ")
           }
           
           $buildInfo | ConvertTo-Json | Out-File -FilePath "$artifactPath\build-info.json" -Encoding UTF8
@@ -140,7 +176,7 @@ jobs:
       if: ${{ github.event.inputs.upload_artifacts == 'true' }}
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ env.PROJECT_NAME }}-${{ github.event.inputs.configuration }}-${{ matrix.platform }}-${{ github.run_number }}
+        name: ${{ env.PROJECT_NAME }}-and-${{ env.LAUNCHER_NAME }}-${{ github.event.inputs.configuration }}-${{ matrix.platform }}-${{ github.run_number }}
         path: artifacts/
         retention-days: 30
         compression-level: 6
@@ -149,13 +185,17 @@ jobs:
       shell: powershell
       run: |
         Write-Host "=== Build Summary ==="
-        Write-Host "Project: ${{ env.PROJECT_NAME }}"
+        Write-Host "Projects: ${{ env.PROJECT_NAME }} + ${{ env.LAUNCHER_NAME }}"
         Write-Host "Configuration: ${{ github.event.inputs.configuration }}"
         Write-Host "Platform: ${{ matrix.platform }}"
         Write-Host "Commit: ${{ github.sha }}"
         Write-Host "Branch: ${{ github.ref_name }}"
         Write-Host "Runner: ${{ runner.os }} ${{ runner.arch }}"
         Write-Host "Artifacts uploaded: ${{ github.event.inputs.upload_artifacts }}"
+        Write-Host ""
+        Write-Host "Expected outputs:"
+        Write-Host "  - ${{ env.PROJECT_NAME }}.dll (Main cheat library)"
+        Write-Host "  - ${{ env.LAUNCHER_NAME }}.exe (Game launcher & injector)"
         Write-Host "===================="
 
   create-release:
@@ -183,8 +223,9 @@ jobs:
           
           if [ -n "$platform" ]; then
             mkdir -p "../release-bundle/$platform"
-            # Only copy DLL files and build info
+            # Copy DLL files, EXE files, and build info
             cp "$dir"*.dll "../release-bundle/$platform/" 2>/dev/null || true
+            cp "$dir"*.exe "../release-bundle/$platform/" 2>/dev/null || true
             cp "$dir"build-info.json "../release-bundle/$platform/" 2>/dev/null || true
           fi
         done
@@ -193,7 +234,7 @@ jobs:
         
         # Create README for the release
         cat > README.md << EOF
-        # ${{ env.PROJECT_NAME }} Build
+        # ${{ env.PROJECT_NAME }} & ${{ env.LAUNCHER_NAME }} Build
         
         **Build Information:**
         - Configuration: ${{ github.event.inputs.configuration }}
@@ -206,13 +247,31 @@ jobs:
         
         **Contents:**
         Each platform directory contains:
-        - The compiled DLL file
-        - build-info.json with build metadata
+        - **${{ env.PROJECT_NAME }}.dll** - Main cheat/tool library
+        - **${{ env.LAUNCHER_NAME }}.exe** - Game launcher and DLL injector
+        - **build-info.json** - Build metadata
         
-        **Installation:**
+        **Usage:**
         1. Choose the appropriate platform directory (x86 or x64)
-        2. Use the DLL file from the chosen platform
-        3. Follow the project's installation instructions
+        2. Run ${{ env.LAUNCHER_NAME }}.exe to launch your game with the tool
+        3. The launcher will automatically inject ${{ env.PROJECT_NAME }}.dll
+        
+        **Launcher Usage:**
+        \`\`\`
+        # Interactive mode (prompts for game path)
+        ${{ env.LAUNCHER_NAME }}.exe
+        
+        # Specify game path
+        ${{ env.LAUNCHER_NAME }}.exe "C:\Games\YourGame.exe"
+        
+        # Specify both game and DLL paths
+        ${{ env.LAUNCHER_NAME }}.exe "C:\Games\YourGame.exe" "${{ env.PROJECT_NAME }}.dll"
+        \`\`\`
+        
+        **Important:**
+        - Run as Administrator for proper injection
+        - Disable antivirus temporarily if needed
+        - For educational/research purposes only
         
         **Note:** This is an automated build. Please verify compatibility with your target application.
         EOF
@@ -221,7 +280,7 @@ jobs:
         for platform_dir in x*/; do
           if [ -d "$platform_dir" ]; then
             platform=$(basename "$platform_dir")
-            zip -r "${{ env.PROJECT_NAME }}-${{ github.event.inputs.configuration }}-${platform}.zip" "$platform_dir"
+            zip -r "${{ env.PROJECT_NAME }}-Complete-${{ github.event.inputs.configuration }}-${platform}.zip" "$platform_dir"
           fi
         done
         
@@ -230,6 +289,6 @@ jobs:
     - name: Upload Release Bundle
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ env.PROJECT_NAME }}-${{ github.event.inputs.configuration }}-Complete-${{ github.run_number }}
+        name: ${{ env.PROJECT_NAME }}-and-${{ env.LAUNCHER_NAME }}-Complete-${{ github.event.inputs.configuration }}-${{ github.run_number }}
         path: release-bundle/
         retention-days: 90
